@@ -1,0 +1,218 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.sql.*;
+import java.time.LocalDate;
+import java.time.Period;
+
+public class VotingApp extends JFrame {
+    Connection conn;
+    JTextField nameField, idField, dobField;
+    JButton proceedBtn, adminBtn;
+
+    final String ADMIN_USERNAME = "admin";
+    final String ADMIN_PASSWORD = "admin123"; // simple hardcoded password, can later improve with DB
+
+    public VotingApp() {
+        setTitle("Online Voting System - ID Based");
+        setSize(400, 300);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+        setLayout(new GridLayout(5, 2));
+
+        connectDB();
+
+        nameField = new JTextField();
+        idField = new JTextField(); // Aadhar/Voter ID
+        dobField = new JTextField(); // Format: YYYY-MM-DD
+
+        proceedBtn = new JButton("Proceed to Vote");
+        adminBtn = new JButton("Admin Panel");
+
+        add(new JLabel("Name:"));
+        add(nameField);
+        add(new JLabel("Aadhar/Voter ID:"));
+        add(idField);
+        add(new JLabel("DOB (YYYY-MM-DD):"));
+        add(dobField);
+        add(proceedBtn);
+        add(adminBtn);
+
+        proceedBtn.addActionListener(e -> validateAndVote());
+        adminBtn.addActionListener(e -> adminLogin());
+
+        setVisible(true);
+    }
+
+    void connectDB() {
+        try {
+            conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/votingsystem", "root", "kanish");
+        } catch (SQLException e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "DB Connection Failed");
+            System.exit(1);
+        }
+    }
+
+    void validateAndVote() {
+        try {
+            String name = nameField.getText().trim();
+            String voterId = idField.getText().trim();
+            String dob = dobField.getText().trim();
+
+            if (name.isEmpty() || voterId.isEmpty() || dob.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "All fields are required.");
+                return;
+            }
+
+            LocalDate birthDate = LocalDate.parse(dob);
+            int age = Period.between(birthDate, LocalDate.now()).getYears();
+
+            if (age < 18) {
+                JOptionPane.showMessageDialog(this, "You must be 18 or older to vote.");
+                return;
+            }
+
+            PreparedStatement check = conn.prepareStatement("SELECT * FROM voters_votes WHERE voter_id = ?");
+            check.setString(1, voterId);
+            ResultSet rs = check.executeQuery();
+
+            if (rs.next()) {
+                JOptionPane.showMessageDialog(this, "You have already voted!");
+                return;
+            }
+
+            showVotingScreen(voterId);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Invalid DOB format or input error.");
+        }
+    }
+
+    void showVotingScreen(String voterId) {
+        JFrame voteFrame = new JFrame("Cast Your Vote");
+        voteFrame.setSize(300, 300);
+        voteFrame.setLayout(new GridLayout(0, 1));
+        voteFrame.setLocationRelativeTo(null);
+
+        try {
+            Statement stmt = conn.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT * FROM politicians");
+
+            while (rs.next()) {
+                int politicianId = rs.getInt("id");
+                String name = rs.getString("name");
+                JButton voteBtn = new JButton("Vote for " + name);
+                voteFrame.add(voteBtn);
+
+                voteBtn.addActionListener(e -> {
+                    try {
+                        PreparedStatement vote = conn.prepareStatement(
+                            "INSERT INTO voters_votes (voter_id, candidate_id) VALUES (?, ?)"
+                        );
+                        vote.setString(1, voterId);
+                        vote.setInt(2, politicianId);
+                        vote.executeUpdate();
+                        JOptionPane.showMessageDialog(voteFrame, "Vote cast successfully!");
+                        voteFrame.dispose();
+                    } catch (SQLException ex) {
+                        ex.printStackTrace();
+                        JOptionPane.showMessageDialog(voteFrame, "Error while casting vote.");
+                    }
+                });
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        voteFrame.setVisible(true);
+    }
+
+    void adminLogin() {
+        JPanel panel = new JPanel(new GridLayout(2, 2));
+        JTextField userField = new JTextField();
+        JPasswordField passField = new JPasswordField();
+        panel.add(new JLabel("Username:"));
+        panel.add(userField);
+        panel.add(new JLabel("Password:"));
+        panel.add(passField);
+
+        int option = JOptionPane.showConfirmDialog(this, panel, "Admin Login", JOptionPane.OK_CANCEL_OPTION);
+
+        if (option == JOptionPane.OK_OPTION) {
+            String username = userField.getText();
+            String password = new String(passField.getPassword());
+
+            if (ADMIN_USERNAME.equals(username) && ADMIN_PASSWORD.equals(password)) {
+                showAdminPanel();
+            } else {
+                JOptionPane.showMessageDialog(this, "Invalid admin credentials.");
+            }
+        }
+    }
+
+    void showAdminPanel() {
+        JFrame adminFrame = new JFrame("Admin Panel - Live Vote Count");
+        adminFrame.setSize(500, 600);
+        adminFrame.setLayout(new BorderLayout());
+        adminFrame.setLocationRelativeTo(null);
+
+        JTextArea resultsArea = new JTextArea();
+        resultsArea.setEditable(false);
+        adminFrame.add(new JScrollPane(resultsArea), BorderLayout.CENTER);
+
+        try {
+            // Create a scrollable ResultSet by specifying the type and concurrency
+            Statement stmt = conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
+            ResultSet rs = stmt.executeQuery(
+                "SELECT p.name, COUNT(vv.id) AS total_votes " +
+                "FROM politicians p LEFT JOIN voters_votes vv ON p.id = vv.candidate_id " +
+                "GROUP BY p.id"
+            );
+
+            int totalVotes = 0;
+            int topVotes = -1;
+            String topPolitician = "";
+            StringBuilder sb = new StringBuilder();
+            sb.append("Live Voting Results:\n\n");
+
+            // First, calculate total votes
+            while (rs.next()) {
+                totalVotes += rs.getInt("total_votes");
+            }
+
+            rs.beforeFirst(); // move cursor back to start
+
+            // Now show detailed report
+            while (rs.next()) {
+                String name = rs.getString("name");
+                int votes = rs.getInt("total_votes");
+                double percentage = totalVotes == 0 ? 0 : (votes * 100.0) / totalVotes;
+                sb.append(name + " - " + votes + " votes (" + String.format("%.2f", percentage) + "%)\n");
+
+                if (votes > topVotes) {
+                    topVotes = votes;
+                    topPolitician = name;
+                }
+            }
+
+            sb.append("\nTotal Votes Cast: " + totalVotes + "\n");
+
+            if (!topPolitician.isEmpty()) {
+                sb.append("\nLeading Politician: " + topPolitician + " (" + topVotes + " votes)\n");
+            }
+
+            resultsArea.setText(sb.toString());
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        adminFrame.setVisible(true);
+    }
+
+    public static void main(String[] args) {
+        new VotingApp();
+    }
+}
