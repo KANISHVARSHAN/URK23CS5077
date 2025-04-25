@@ -1,0 +1,6 @@
+Project Overview:
+                    The Online Voting System allows citizens to vote electronically based on their voter ID and personal details (e.g., Date of Birth). The system is designed to authenticate users, allow them to vote for political candidates, and provide live voting results for administrators.
+Technologies Used:
+                  Frontend: Java Swing (GUI)
+                  Backend: Java, MySQL (JDBC)
+                  Database: MySQl

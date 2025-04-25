@@ -1,0 +1,19 @@
+CREATE DATABASE  votingsystem;
+USE votingsystem;
+CREATE TABLE politicians (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+);
+CREATE TABLE  voters_votes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    voter_id VARCHAR(50) NOT NULL UNIQUE,
+    candidate_id INT NOT NULL,
+    voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (candidate_id) REFERENCES voters(id)
+);
+INSERT INTO politicians (name) VALUES
+('ANNAMALAI'),
+('UDYAH NIDHI STALIN'),
+('EDAPADI PALINISAMMI');
+select * from politicians;
+select * from voters_votes;
